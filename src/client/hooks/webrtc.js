@@ -11,7 +11,7 @@ export function initWebRTC() {
   ws.onerror = (err) => console.error("Ошибка WebSocket:", err);
   ws.onclose = () => console.log("WebSocket закрыт");
 
-  pc = new RTCPeerConnection({
+  window.pc = pc = new RTCPeerConnection({
     iceServers: [
       { urls: "stun:stun.l.google.com:19302" },
       { urls: "turn:global.turn.twilio.com:3478?transport=udp", username: "demo", credential: "demo" }
@@ -28,7 +28,10 @@ export function initWebRTC() {
     const audio = document.getElementById("remoteAudio");
     if (audio) {
       audio.srcObject = event.streams[0];
-      audio.play().catch(() => {});
+      audio.autoplay = true;
+      audio.volume = 1;
+      audio.muted = false;
+      audio.play().catch(() => console.log("Автовоспроизведение заблокировано. Нажмите на страницу."));
     }
   };
 
@@ -83,7 +86,10 @@ export function initWebRTC() {
 
 export async function startCall() {
   if (!pc) return;
-  if (pc.signalingState !== "stable") return;
+  if (pc.signalingState !== "stable") {
+    console.warn("Call уже инициирован, подождите завершения текущего offer");
+    return;
+  }
 
   await ensureLocalAudio();
 
