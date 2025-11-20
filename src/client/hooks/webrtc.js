@@ -28,32 +28,47 @@ export function initWebRTC() {
     }
   };
 
-  pc.onconnectionstatechange = () => console.log("Connection state:", pc.connectionState);
+  pc.onconnectionstatechange = () =>
+    console.log("Connection state:", pc.connectionState);
 
   ws.onmessage = async (e) => {
     const msg = JSON.parse(e.data);
+
     try {
       if (msg.type === "offer") {
+        await enableLocalAudio();
+
         if (pc.signalingState === "have-local-offer") {
           await pc.setLocalDescription({ type: "rollback" });
         }
+
         await pc.setRemoteDescription(msg.sdp);
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
+
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: "answer", sdp: answer }));
         }
+
         for (const c of pendingCandidates) {
-          try { await pc.addIceCandidate(c); } catch {}
+          try {
+            await pc.addIceCandidate(c);
+          } catch {}
         }
         pendingCandidates = [];
       }
 
       if (msg.type === "answer") {
-        if (pc.signalingState === "have-local-offer" || pc.signalingState === "stable") {
+        if (
+          pc.signalingState === "have-local-offer" ||
+          pc.signalingState === "stable"
+        ) {
           await pc.setRemoteDescription(msg.sdp);
+
           for (const c of pendingCandidates) {
-            try { await pc.addIceCandidate(c); } catch {}
+            try {
+              await pc.addIceCandidate(c);
+            } catch {}
           }
           pendingCandidates = [];
         }
@@ -61,7 +76,9 @@ export function initWebRTC() {
 
       if (msg.type === "candidate") {
         if (pc.remoteDescription && pc.remoteDescription.type) {
-          try { await pc.addIceCandidate(msg.candidate); } catch {}
+          try {
+            await pc.addIceCandidate(msg.candidate);
+          } catch {}
         } else {
           pendingCandidates.push(msg.candidate);
         }
@@ -73,13 +90,20 @@ export function initWebRTC() {
 export async function startCall() {
   if (!pc) return;
   if (pc.signalingState !== "stable") return;
+
+  await enableLocalAudio();
+
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "offer", sdp: offer }));
+  }
+}
+
+async function enableLocalAudio() {
   if (!localStream) {
     localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     localStream.getTracks().forEach((t) => pc.addTrack(t, localStream));
-  }
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: "offer", sdp: offer }));
   }
 }

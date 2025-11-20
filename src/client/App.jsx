@@ -9,7 +9,7 @@ export default function App() {
   return (
     <>
       <button onClick={startCall}>Позвонить</button>
-      <audio id="remoteAudio" autoPlay></audio>
+      <audio id="remoteAudio" autoPlay playsInline></audio>
     </>
   );
 }
