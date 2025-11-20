@@ -2,6 +2,7 @@ let pc;
 let ws;
 let localStream;
 let pendingCandidates = [];
+let tracksAdded = false;
 
 export function initWebRTC() {
   ws = new WebSocket("ws://46.32.73.87:3001");
@@ -11,7 +12,10 @@ export function initWebRTC() {
   ws.onclose = () => console.log("WebSocket закрыт");
 
   pc = new RTCPeerConnection({
-    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "turn:global.turn.twilio.com:3478?transport=udp", username: "demo", credential: "demo" }
+    ]
   });
 
   pc.onicecandidate = (e) => {
@@ -36,7 +40,7 @@ export function initWebRTC() {
 
     try {
       if (msg.type === "offer") {
-        await enableLocalAudio();
+        await ensureLocalAudio();
 
         if (pc.signalingState === "have-local-offer") {
           await pc.setLocalDescription({ type: "rollback" });
@@ -51,24 +55,16 @@ export function initWebRTC() {
         }
 
         for (const c of pendingCandidates) {
-          try {
-            await pc.addIceCandidate(c);
-          } catch {}
+          try { await pc.addIceCandidate(c); } catch {}
         }
         pendingCandidates = [];
       }
 
       if (msg.type === "answer") {
-        if (
-          pc.signalingState === "have-local-offer" ||
-          pc.signalingState === "stable"
-        ) {
+        if (pc.signalingState === "have-local-offer" || pc.signalingState === "stable") {
           await pc.setRemoteDescription(msg.sdp);
-
           for (const c of pendingCandidates) {
-            try {
-              await pc.addIceCandidate(c);
-            } catch {}
+            try { await pc.addIceCandidate(c); } catch {}
           }
           pendingCandidates = [];
         }
@@ -76,9 +72,7 @@ export function initWebRTC() {
 
       if (msg.type === "candidate") {
         if (pc.remoteDescription && pc.remoteDescription.type) {
-          try {
-            await pc.addIceCandidate(msg.candidate);
-          } catch {}
+          try { await pc.addIceCandidate(msg.candidate); } catch {}
         } else {
           pendingCandidates.push(msg.candidate);
         }
@@ -91,7 +85,7 @@ export async function startCall() {
   if (!pc) return;
   if (pc.signalingState !== "stable") return;
 
-  await enableLocalAudio();
+  await ensureLocalAudio();
 
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
@@ -101,9 +95,12 @@ export async function startCall() {
   }
 }
 
-async function enableLocalAudio() {
+async function ensureLocalAudio() {
   if (!localStream) {
     localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  }
+  if (!tracksAdded) {
     localStream.getTracks().forEach((t) => pc.addTrack(t, localStream));
+    tracksAdded = true;
   }
 }
