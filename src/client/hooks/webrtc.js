@@ -1,10 +1,8 @@
-// webrtc.js
 let pc;
 let ws;
 let localStream;
 let pendingCandidates = [];
 
-// --- Инициализация WebSocket и PeerConnection ---
 export function initWebRTC() {
   ws = new WebSocket("ws://46.32.73.87:3001");
 
@@ -24,85 +22,64 @@ export function initWebRTC() {
 
   pc.ontrack = (event) => {
     const audio = document.getElementById("remoteAudio");
-    if (audio) audio.srcObject = event.streams[0];
+    if (audio) {
+      audio.srcObject = event.streams[0];
+      audio.play().catch(() => {});
+    }
   };
 
-  // --- Обработка сообщений WebSocket ---
+  pc.onconnectionstatechange = () => console.log("Connection state:", pc.connectionState);
+
   ws.onmessage = async (e) => {
     const msg = JSON.parse(e.data);
-
     try {
-      // --- Offer ---
       if (msg.type === "offer") {
-        if (pc.signalingState !== "stable") {
-          console.warn("Offer отложен, текущее состояние:", pc.signalingState);
-          return;
+        if (pc.signalingState === "have-local-offer") {
+          await pc.setLocalDescription({ type: "rollback" });
         }
-
         await pc.setRemoteDescription(msg.sdp);
-
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
-
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: "answer", sdp: answer }));
         }
-
-        // Применяем отложенные ICE-кандидаты
         for (const c of pendingCandidates) {
-          await pc.addIceCandidate(c);
+          try { await pc.addIceCandidate(c); } catch {}
         }
         pendingCandidates = [];
       }
 
-      // --- Answer ---
       if (msg.type === "answer") {
-        if (pc.signalingState === "have-local-offer") {
+        if (pc.signalingState === "have-local-offer" || pc.signalingState === "stable") {
           await pc.setRemoteDescription(msg.sdp);
-
-          // Применяем отложенные ICE-кандидаты
           for (const c of pendingCandidates) {
-            await pc.addIceCandidate(c);
+            try { await pc.addIceCandidate(c); } catch {}
           }
           pendingCandidates = [];
-        } else {
-          console.warn("Answer пропущен, текущее состояние:", pc.signalingState);
         }
       }
 
-      // --- ICE Candidate ---
       if (msg.type === "candidate") {
         if (pc.remoteDescription && pc.remoteDescription.type) {
-          await pc.addIceCandidate(msg.candidate);
+          try { await pc.addIceCandidate(msg.candidate); } catch {}
         } else {
-          // Откладываем кандидата
           pendingCandidates.push(msg.candidate);
         }
       }
-    } catch (err) {
-      console.error("Ошибка обработки сообщения WebRTC:", err);
-    }
+    } catch {}
   };
 }
 
-// --- Начало звонка ---
 export async function startCall() {
-  if (!pc) {
-    console.error("PeerConnection не инициализирован");
-    return;
+  if (!pc) return;
+  if (pc.signalingState !== "stable") return;
+  if (!localStream) {
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    localStream.getTracks().forEach((t) => pc.addTrack(t, localStream));
   }
-
-  // Получаем микрофон
-  localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  localStream.getTracks().forEach((t) => pc.addTrack(t, localStream));
-
-  // Создаём offer
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
-
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: "offer", sdp: offer }));
-  } else {
-    console.warn("WebSocket ещё не подключён. Попробуйте позже.");
   }
 }
